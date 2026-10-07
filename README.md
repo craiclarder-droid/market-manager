@@ -47,3 +47,11 @@ Adds post-market takings, cash/card, travel and other costs, footfall, weather, 
 - Default mileage rate: £0.55/mile for 2026/27.
 - Itemised event expenses with description + amount.
 - Existing legacy 'other costs' are migrated into an expense line when an event is opened.
+
+
+## Cycle 3 - Operations intelligence
+- Applications/booking pipeline from Interested through Paid.
+- Dashboard action queue for application and payment deadlines, including overdue warnings.
+- Calendar previous/next month navigation and market/personal clash warnings.
+- Stock planning for booked events using recorded market averages with a 20% buffer.
+- All features use the existing event/result records and existing Supabase cloud document; no destructive schema migration.
