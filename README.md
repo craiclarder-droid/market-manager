@@ -36,3 +36,6 @@ Full calendar navigation, clash detection, improved organiser reuse, dashboard a
 - Every newly-created event copies the 31-item master list.
 - Existing saved markets and existing event checklists are not overwritten.
 - After migration, the master list remains editable in Settings.
+
+## Cycle 2 - Market Performance
+Adds post-market takings, cash/card, travel and other costs, footfall, weather, rebook judgement, notes, automatic net and net/hour, plus per-market averages/best/worst.
