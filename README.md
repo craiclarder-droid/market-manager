@@ -17,3 +17,9 @@ Cycle 1 uses browser `localStorage`. Data survives refresh/reopen on the same br
 
 ## Next Cycle 1 pass
 Full calendar navigation, clash detection, improved organiser reuse, dashboard action queue, and checklist reordering.
+
+
+## Cycle 1 Fix 1
+- Fixed event checklist add/remove wiping unsaved form fields.
+- Added Craic Larder's standard market checklist as the default for new events.
+- Existing saved markets/events are preserved.

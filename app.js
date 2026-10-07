@@ -1,6 +1,6 @@
 const KEY='market-manager-v1';
 const statuses=['Discovered','Interested','Applying','Applied','Waiting List','Offered','Booked','Paid','Completed','Declined','Cancelled','Ignored'];
-const defaultChecklist=['Card reader charged','Seasoning stock','Honey stock','Samples & cups','Price signs','Tablecloth / stall dressing','Bags','Phone charger / power bank'];
+const defaultChecklist=["Popcorn", "Apron", "Seasoning for popcorn", "Allergen cards", "Signage", "Bucket for waste water", "Soap", "Blue roll", "Bags", "Gloves", "Honey", "Blends x 7", "Craic stickers", "First aid kit", "Blackboard", "Blue tack", "Tubs", "Spoons", "Elevators (plastic crates)", "Tester cups", "Strut cards", "Card machine", "Change", "Tablecloth", "Water tank & tap", "Lights", "Clips", "Crates", "Banners", "Bungees", "Fairy lights"];
 const demo={organisers:[{id:'o1',name:'Scottish Markets',contactName:'',email:'',phone:'',website:'',instagram:'',facebook:'',notes:'Demo organiser – delete when ready'}],markets:[{id:'m1',name:'Newton Mearns Market',organiserId:'o1',venue:'Avenue area',town:'Newton Mearns',address:'',frequency:'1st Saturday',typicalFee:60,setting:'Outdoor',applicationUrl:'',notes:'DEMO DATA – use this to test then delete'}],events:[{id:'e1',marketId:'m1',date:'2026-11-07',status:'Booked',pitchFee:60,paid:false,applicationDeadline:'',paymentDeadline:'',setupFrom:'08:00',arrivalDeadline:'09:00',vehicleOut:'09:30',tradeStart:'10:00',tradeFinish:'14:00',packStart:'14:00',packFinish:'15:00',pitch:'',parking:'',instructions:'Demo event',notes:'',checklist:defaultChecklist.map((text,i)=>({id:'c'+i,text,done:false}))}],personal:[],settings:{defaultChecklist:[...defaultChecklist]}};
 let data=load(); let page='home';
 function load(){try{return JSON.parse(localStorage.getItem(KEY))||structuredClone(demo)}catch{return structuredClone(demo)}}
@@ -24,7 +24,107 @@ function action(a,id,i){if(a==='addMarket')openMarket(); if(a==='editMarket')ope
 function field(label,name,val='',type='text'){return `<div class="field"><label>${label}</label><input type="${type}" name="${name}" value="${esc(val??'')}"></div>`}
 function openMarket(id){let m=id?market(id):{}, o=id?organiser(m.organiserId):{};$('#formBody').innerHTML=`<h2>${id?'Edit':'Add'} market</h2><div class="stack">${field('Market name','name',m.name)}<div class="two">${field('Venue','venue',m.venue)}${field('Town / city','town',m.town)}</div>${field('Address / postcode','address',m.address)}<div class="two">${field('Typical frequency','frequency',m.frequency)}${field('Typical pitch fee (£)','typicalFee',m.typicalFee,'number')}</div><div class="field"><label>Indoor / outdoor</label><select name="setting">${['','Indoor','Outdoor','Mixed'].map(x=>`<option ${m.setting===x?'selected':''}>${x}</option>`).join('')}</select></div>${field('Application URL','applicationUrl',m.applicationUrl)}<hr><h3>Organiser</h3>${field('Organiser name','orgName',o.name)}<div class="two">${field('Contact name','contactName',o.contactName)}${field('Email','email',o.email,'email')}</div><div class="two">${field('Phone','phone',o.phone)}${field('Website','website',o.website)}</div>${field('Instagram','instagram',o.instagram)}${field('Facebook','facebook',o.facebook)}<div class="field"><label>Notes</label><textarea name="notes">${esc(m.notes||'')}</textarea></div>${id?'<button type="button" class="danger" id="deleteMarket">Delete market</button>':''}</div>`;$('#modal').showModal();$('#form').onsubmit=e=>{e.preventDefault();let f=new FormData(e.target), oid=o.id||uid('o'), mid=m.id||uid('m');let org={id:oid,name:f.get('orgName'),contactName:f.get('contactName'),email:f.get('email'),phone:f.get('phone'),website:f.get('website'),instagram:f.get('instagram'),facebook:f.get('facebook'),notes:o.notes||''};let nm={id:mid,name:f.get('name'),organiserId:oid,venue:f.get('venue'),town:f.get('town'),address:f.get('address'),frequency:f.get('frequency'),typicalFee:+f.get('typicalFee')||0,setting:f.get('setting'),applicationUrl:f.get('applicationUrl'),notes:f.get('notes')};upsert(data.organisers,org);upsert(data.markets,nm);$('#modal').close();save()};if(id)$('#deleteMarket').onclick=()=>{if(confirm('Delete this market AND all its event dates?')){data.events=data.events.filter(e=>e.marketId!==id);data.markets=data.markets.filter(x=>x.id!==id);$('#modal').close();save()}}}
 function upsert(arr,x){let i=arr.findIndex(y=>y.id===x.id);if(i>=0)arr[i]=x;else arr.push(x)}
-function openEvent(id,marketId){let e=id?data.events.find(x=>x.id===id):{marketId,status:'Interested',paid:false,checklist:data.settings.defaultChecklist.map(x=>({id:uid('c'),text:x,done:false}))};let m=market(e.marketId);$('#formBody').innerHTML=`<h2>${id?'Event':'New event'} · ${esc(m?.name||'')}</h2><div class="stack">${field('Date','date',e.date,'date')}<div class="two"><div class="field"><label>Status</label><select name="status">${statuses.map(x=>`<option ${e.status===x?'selected':''}>${x}</option>`).join('')}</select></div>${field('Pitch fee (£)','pitchFee',e.pitchFee??m?.typicalFee,'number')}</div><label class="check"><input type="checkbox" name="paid" ${e.paid?'checked':''}> Pitch paid</label><div class="two">${field('Application deadline','applicationDeadline',e.applicationDeadline,'date')}${field('Payment deadline','paymentDeadline',e.paymentDeadline,'date')}</div><h3>Times</h3><div class="two">${field('Setup from','setupFrom',e.setupFrom,'time')}${field('Arrival deadline','arrivalDeadline',e.arrivalDeadline,'time')}${field('Vehicle out by','vehicleOut',e.vehicleOut,'time')}${field('Trading starts','tradeStart',e.tradeStart,'time')}${field('Trading finishes','tradeFinish',e.tradeFinish,'time')}${field('Pack down finishes','packFinish',e.packFinish,'time')}</div>${field('Pitch / stall number','pitch',e.pitch)}<div class="field"><label>Parking / loading</label><textarea name="parking">${esc(e.parking||'')}</textarea></div><div class="field"><label>Organiser instructions</label><textarea name="instructions">${esc(e.instructions||'')}</textarea></div><h3>Event checklist</h3><div id="checks">${(e.checklist||[]).map((c,i)=>`<div class="check"><input type="checkbox" data-check="${i}" ${c.done?'checked':''}><input data-text="${i}" value="${esc(c.text)}"><button type="button" data-rm="${i}">×</button></div>`).join('')}</div><button type="button" id="addCheck">+ Add checklist item</button>${id?'<button type="button" class="danger" id="deleteEvent">Delete event</button>':''}</div>`;$('#modal').showModal();let checklist=structuredClone(e.checklist||[]);function rechecks(){document.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{checklist.splice(+b.dataset.rm,1);openEventTemp()})}function openEventTemp(){e.checklist=checklist;$('#modal').close();openEventObject(e,id)} rechecks();$('#addCheck').onclick=()=>{let x=prompt('Checklist item');if(x){checklist.push({id:uid('c'),text:x,done:false});openEventTemp()}};$('#form').onsubmit=ev=>{ev.preventDefault();document.querySelectorAll('[data-text]').forEach(inp=>{let i=+inp.dataset.text;if(checklist[i]){checklist[i].text=inp.value;checklist[i].done=document.querySelector(`[data-check="${i}"]`).checked}});let f=new FormData(ev.target), ne={...e,id:e.id||uid('e'),marketId:e.marketId,date:f.get('date'),status:f.get('status'),pitchFee:+f.get('pitchFee')||0,paid:f.get('paid')==='on',applicationDeadline:f.get('applicationDeadline'),paymentDeadline:f.get('paymentDeadline'),setupFrom:f.get('setupFrom'),arrivalDeadline:f.get('arrivalDeadline'),vehicleOut:f.get('vehicleOut'),tradeStart:f.get('tradeStart'),tradeFinish:f.get('tradeFinish'),packStart:e.packStart||'',packFinish:f.get('packFinish'),pitch:f.get('pitch'),parking:f.get('parking'),instructions:f.get('instructions'),notes:e.notes||'',checklist};upsert(data.events,ne);$('#modal').close();save()};if(id)$('#deleteEvent').onclick=()=>{if(confirm('Delete this event?')){data.events=data.events.filter(x=>x.id!==id);$('#modal').close();save()}}}
+function openEvent(id,marketId){
+  let e=id?data.events.find(x=>x.id===id):{marketId,status:'Interested',paid:false,checklist:data.settings.defaultChecklist.map(x=>({id:uid('c'),text:x,done:false}))};
+  let m=market(e.marketId);
+  let checklist=structuredClone(e.checklist||[]);
+
+  function checkRow(c,i){
+    return `<div class="check" data-check-row="${i}">
+      <input type="checkbox" data-check="${i}" ${c.done?'checked':''}>
+      <input data-text="${i}" value="${esc(c.text)}">
+      <button type="button" data-rm="${i}">×</button>
+    </div>`;
+  }
+
+  $('#formBody').innerHTML=`<h2>${id?'Event':'New event'} · ${esc(m?.name||'')}</h2><div class="stack">
+    ${field('Date','date',e.date,'date')}
+    <div class="two">
+      <div class="field"><label>Status</label><select name="status">${statuses.map(x=>`<option ${e.status===x?'selected':''}>${x}</option>`).join('')}</select></div>
+      ${field('Pitch fee (£)','pitchFee',e.pitchFee??m?.typicalFee,'number')}
+    </div>
+    <label class="check"><input type="checkbox" name="paid" ${e.paid?'checked':''}> Pitch paid</label>
+    <div class="two">${field('Application deadline','applicationDeadline',e.applicationDeadline,'date')}${field('Payment deadline','paymentDeadline',e.paymentDeadline,'date')}</div>
+    <h3>Times</h3>
+    <div class="two">
+      ${field('Setup from','setupFrom',e.setupFrom,'time')}
+      ${field('Arrival deadline','arrivalDeadline',e.arrivalDeadline,'time')}
+      ${field('Vehicle out by','vehicleOut',e.vehicleOut,'time')}
+      ${field('Trading starts','tradeStart',e.tradeStart,'time')}
+      ${field('Trading finishes','tradeFinish',e.tradeFinish,'time')}
+      ${field('Pack down finishes','packFinish',e.packFinish,'time')}
+    </div>
+    ${field('Pitch / stall number','pitch',e.pitch)}
+    <div class="field"><label>Parking / loading</label><textarea name="parking">${esc(e.parking||'')}</textarea></div>
+    <div class="field"><label>Organiser instructions</label><textarea name="instructions">${esc(e.instructions||'')}</textarea></div>
+    <h3>Event checklist</h3>
+    <div id="checks">${checklist.map(checkRow).join('')}</div>
+    <button type="button" id="addCheck">+ Add checklist item</button>
+    ${id?'<button type="button" class="danger" id="deleteEvent">Delete event</button>':''}
+  </div>`;
+
+  $('#modal').showModal();
+
+  function syncChecklistFromDom(){
+    document.querySelectorAll('[data-text]').forEach(inp=>{
+      let i=+inp.dataset.text;
+      if(checklist[i]){
+        checklist[i].text=inp.value;
+        let cb=document.querySelector(`[data-check="${i}"]`);
+        checklist[i].done=!!cb?.checked;
+      }
+    });
+  }
+
+  function renderChecklist(){
+    $('#checks').innerHTML=checklist.map(checkRow).join('');
+    bindChecklist();
+  }
+
+  function bindChecklist(){
+    document.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{
+      syncChecklistFromDom();
+      checklist.splice(+b.dataset.rm,1);
+      renderChecklist();
+    });
+  }
+
+  bindChecklist();
+
+  $('#addCheck').onclick=()=>{
+    syncChecklistFromDom();
+    let x=prompt('Checklist item');
+    if(x && x.trim()){
+      checklist.push({id:uid('c'),text:x.trim(),done:false});
+      renderChecklist();
+    }
+  };
+
+  $('#form').onsubmit=ev=>{
+    ev.preventDefault();
+    syncChecklistFromDom();
+    let f=new FormData(ev.target), ne={
+      ...e,id:e.id||uid('e'),marketId:e.marketId,date:f.get('date'),status:f.get('status'),
+      pitchFee:+f.get('pitchFee')||0,paid:f.get('paid')==='on',
+      applicationDeadline:f.get('applicationDeadline'),paymentDeadline:f.get('paymentDeadline'),
+      setupFrom:f.get('setupFrom'),arrivalDeadline:f.get('arrivalDeadline'),vehicleOut:f.get('vehicleOut'),
+      tradeStart:f.get('tradeStart'),tradeFinish:f.get('tradeFinish'),packStart:e.packStart||'',
+      packFinish:f.get('packFinish'),pitch:f.get('pitch'),parking:f.get('parking'),
+      instructions:f.get('instructions'),notes:e.notes||'',checklist
+    };
+    upsert(data.events,ne);
+    $('#modal').close();
+    save();
+  };
+
+  if(id)$('#deleteEvent').onclick=()=>{
+    if(confirm('Delete this event?')){
+      data.events=data.events.filter(x=>x.id!==id);
+      $('#modal').close();
+      save();
+    }
+  };
+}
 function openEventObject(obj,id){let idx=data.events.findIndex(x=>x.id===obj.id); if(idx>=0)data.events[idx]=obj; else if(id){} openEvent(id||null,obj.marketId)}
 function openPersonal(){let title=prompt('What is it? e.g. Butcher shift, holiday, appointment');if(!title)return;let date=prompt('Date (YYYY-MM-DD)');if(date){data.personal.push({id:uid('p'),title,date});save()}}
 render();
