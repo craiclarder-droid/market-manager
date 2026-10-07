@@ -5,6 +5,7 @@ const CLOUD_TABLE = "market_manager_data";
 
 const KEY='market-manager-v1';
 const CRAIC_MASTER_CHECKLIST=["Popcorn", "Apron", "Seasoning for popcorn", "Allergen cards", "Signage", "Bucket for waste water", "Soap", "Blue roll", "Bags", "Gloves", "Honey", "Blends x 7", "Craic stickers", "First aid kit", "Blackboard", "Blue tack", "Tubs", "Spoons", "Elevators (plastic crates)", "Tester cups", "Strut cards", "Card machine", "Change", "Tablecloth", "Water tank & tap", "Lights", "Clips", "Crates", "Banners", "Bungees", "Fairy lights"];
+const CRAIC_BLENDS=['Garlic / Herb','Salt / Chilli','Smokey / Sweet','Highlander Salt','Kebab House','Mexican Mix','Lemon / Herb'];
 const statuses=['Discovered','Interested','Applying','Applied','Waiting List','Offered','Booked','Paid','Completed','Declined','Cancelled','Ignored'];
 const defaultChecklist=["Popcorn", "Apron", "Seasoning for popcorn", "Allergen cards", "Signage", "Bucket for waste water", "Soap", "Blue roll", "Bags", "Gloves", "Honey", "Blends x 7", "Craic stickers", "First aid kit", "Blackboard", "Blue tack", "Tubs", "Spoons", "Elevators (plastic crates)", "Tester cups", "Strut cards", "Card machine", "Change", "Tablecloth", "Water tank & tap", "Lights", "Clips", "Crates", "Banners", "Bungees", "Fairy lights"];
 const demo={organisers:[{id:'o1',name:'Scottish Markets',contactName:'',email:'',phone:'',website:'',instagram:'',facebook:'',notes:'Demo organiser – delete when ready'}],markets:[{id:'m1',name:'Newton Mearns Market',organiserId:'o1',venue:'Avenue area',town:'Newton Mearns',address:'',frequency:'1st Saturday',typicalFee:60,setting:'Outdoor',applicationUrl:'',notes:'DEMO DATA – use this to test then delete'}],events:[{id:'e1',marketId:'m1',date:'2026-11-07',status:'Booked',pitchFee:60,paid:false,applicationDeadline:'',paymentDeadline:'',setupFrom:'08:00',arrivalDeadline:'09:00',vehicleOut:'09:30',tradeStart:'10:00',tradeFinish:'14:00',packStart:'14:00',packFinish:'15:00',pitch:'',parking:'',instructions:'Demo event',notes:'',checklist:defaultChecklist.map((text,i)=>({id:'c'+i,text,done:false}))}],personal:[],settings:{defaultChecklist:[...defaultChecklist]}};
@@ -98,10 +99,23 @@ function actionQueue(){
   return out.sort((a,b)=>a.date.localeCompare(b.date));
 }
 function pipelineGroups(){return ['Interested','Applying','Applied','Waiting List','Offered','Booked','Paid'].map(status=>({status,events:data.events.filter(e=>e.status===status).sort((a,b)=>(a.date||'').localeCompare(b.date||''))}))}
+function blendSalesFromEvent(e){return e.results?.blendSales&&typeof e.results.blendSales==='object'?e.results.blendSales:{}}
+function blendProfile(mid){
+ let es=data.events.filter(e=>e.marketId===mid&&Object.values(blendSalesFromEvent(e)).some(Number));
+ let totals=Object.fromEntries(CRAIC_BLENDS.map(x=>[x,0])),all=0;
+ es.forEach(e=>CRAIC_BLENDS.forEach(x=>{let n=Number(blendSalesFromEvent(e)[x]||0);totals[x]+=n;all+=n}));
+ return {events:es.length,totals,shares:Object.fromEntries(CRAIC_BLENDS.map(x=>[x,all?totals[x]/all:0])),units:all};
+}
+function confidenceLabel(count,blendEvents){if(count>=4&&blendEvents>=3)return'High';if(count>=2||blendEvents>=1)return'Medium';return'Low'}
 function forecastForEvent(e){
-  let st=marketStats(e.marketId), expected=st?.avg||0;
-  let pouches=expected?Math.ceil(expected/12*3):0;
-  return {expected,pouches,buffer:pouches?Math.ceil(pouches*1.2):0};
+ let st=marketStats(e.marketId), expected=st?.avg||0, profile=blendProfile(e.marketId);
+ let pouches=expected?Math.ceil(expected/12*3):0,buffer=pouches?Math.ceil(pouches*1.2):0;
+ let fallback={'Salt / Chilli':.22,'Lemon / Herb':.17,'Garlic / Herb':.16,'Smokey / Sweet':.14,'Kebab House':.12,'Mexican Mix':.10,'Highlander Salt':.09};
+ let shares=profile.units?profile.shares:fallback;
+ let byBlend=Object.fromEntries(CRAIC_BLENDS.map(x=>[x,buffer?Math.max(1,Math.round(buffer*(shares[x]||0))):0]));
+ let assigned=Object.values(byBlend).reduce((a,b)=>a+b,0),diff=buffer-assigned;
+ if(buffer&&diff)byBlend['Salt / Chilli']=Math.max(1,byBlend['Salt / Chilli']+diff);
+ return {expected,pouches,buffer,byBlend,profile,confidence:confidenceLabel(st?.count||0,profile.events)};
 }
 function marketStats(mid){let es=data.events.filter(e=>e.marketId===mid&&e.results&&e.results.takings!==''&&e.results.takings!=null);if(!es.length)return null;let vals=es.map(e=>Number(e.results.takings||0));return {count:es.length,avg:vals.reduce((a,b)=>a+b,0)/vals.length,best:Math.max(...vals),worst:Math.min(...vals),avgNet:es.reduce((a,e)=>a+eventNet(e),0)/es.length,avgHourly:es.reduce((a,e)=>a+eventHourly(e),0)/es.length}}
 
@@ -128,7 +142,7 @@ function applicationsPage(){
 }
 function stockPage(){
  let es=data.events.filter(e=>e.date>=today()&&['Booked','Paid'].includes(e.status)).sort((a,b)=>a.date.localeCompare(b.date));
- return `<h2>Stock forecast</h2><p class="muted">Planning guide based on each market's recorded average takings. It becomes smarter as you log more results.</p>${es.map(e=>{let f=forecastForEvent(e),st=marketStats(e.marketId);return `<div class="card"><div class="row"><div><h3>${esc(market(e.marketId)?.name||'Market')}</h3><div class="muted">${fmtDate(e.date)} · ${st?st.count+' previous result'+(st.count===1?'':'s'):'no history yet'}</div></div><button data-action="editEvent" data-id="${e.id}">Open</button></div>${st?`<div class="result-grid"><div class="metric"><span class="muted">Expected takings</span><b>${money(f.expected)}</b></div><div class="metric"><span class="muted">Core pouch guide</span><b>${f.pouches}</b></div><div class="metric"><span class="muted">20% buffer</span><b>${f.buffer}</b></div></div>`:'<p>Add a result from this market before relying on a stock number.</p>'}</div>`}).join('')||'<div class="card empty">No booked markets to forecast yet.</div>'}`;
+ return `<h2>Stock forecast</h2><p class="muted">Uses each market's takings history and, when you log it, the actual blend mix sold there. Low-confidence forecasts use Craic's current general sales pattern until that market teaches us better.</p>${es.map(e=>{let f=forecastForEvent(e),st=marketStats(e.marketId);return `<div class="card"><div class="row"><div><h3>${esc(market(e.marketId)?.name||'Market')}</h3><div class="muted">${fmtDate(e.date)} · ${st?st.count+' previous result'+(st.count===1?'':'s'):'no history yet'} · <b>${f.confidence} confidence</b></div></div><button data-action="editEvent" data-id="${e.id}">Open</button></div>${st?`<div class="result-grid"><div class="metric"><span class="muted">Expected takings</span><b>${money(f.expected)}</b></div><div class="metric"><span class="muted">Core pouch guide</span><b>${f.pouches}</b></div><div class="metric"><span class="muted">Pack with 20% buffer</span><b>${f.buffer}</b></div></div><h4>Suggested blend load</h4><div class="blend-forecast">${CRAIC_BLENDS.map(x=>`<div><span>${esc(x)}</span><b>${f.byBlend[x]}</b></div>`).join('')}</div><p class="muted">${f.profile.events?`Based on ${f.profile.events} event${f.profile.events===1?'':'s'} with blend-level sales logged at this market.`:'No blend-level history here yet, so this uses Craic’s general mix as a starting point.'}</p>`:'<p>Add a result from this market before relying on a stock number.</p>'}</div>`}).join('')||'<div class="card empty">No booked markets to forecast yet.</div>'}`;
 }
 function settingsPage(){return `<h2>Settings</h2><div class="card"><h3>Travel</h3><div class="two">${field('Craic base postcode','basePostcode',data.settings.basePostcode)}${field('Mileage rate (£/mile)','mileageRate',data.settings.mileageRate,'number')}</div><p class="muted">Return mileage × rate. Default rate is 55p/mile for 2026/27.</p><button data-action="saveTravel">Save travel settings</button></div><div class="card"><h3>Default market checklist</h3><p class="muted">New events copy this list. Editing an event checklist never changes this master list.</p><div id="defaultChecks">${data.settings.defaultChecklist.map((x,i)=>`<div class="row"><span>${esc(x)}</span><button data-action="removeDefault" data-i="${i}">Remove</button></div>`).join('')}</div><br><button data-action="addDefault">+ Add item</button></div><div class="card"><h3>Data</h3><p class="muted">Cycle 1 stores data in this browser so it survives refreshes. Cloud sync can replace this data layer later.</p><button data-action="export">Export backup</button> <button data-action="reset" class="danger">Reset demo data</button></div>`}
 function placeholder(t,s){return `<h2>${t}</h2><div class="card empty">${s}</div>`}
@@ -179,6 +193,7 @@ function openEvent(id,marketId){
     <div class="two">${field('Travel cost (£)','travelCost',e.results?.travelCost??'','number')}<div class="field"><label>Mileage calculator</label><button type="button" id="calcMileage">Calculate from return miles</button><div class="muted">${esc(data.settings.basePostcode)} · ${money(data.settings.mileageRate)}/mile</div></div></div>
     <div class="field"><label>Event expenses</label><div id="expenses"></div><div class="two"><input id="expenseDesc" placeholder="e.g. Curry / networking"><input id="expenseAmount" type="number" step="0.01" inputmode="decimal" placeholder="£"></div><button type="button" id="addExpense">+ Add expense</button><p class="muted">Parking, networking food, one-off supplies etc. Mileage stays separate.</p></div>
     <div class="two"><div class="field"><label>Footfall</label><select name="footfall">${['','Poor','Average','Busy'].map(x=>`<option ${e.results?.footfall===x?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Weather</label><select name="weather">${['','Poor','OK','Good'].map(x=>`<option ${e.results?.weather===x?'selected':''}>${x}</option>`).join('')}</select></div></div>
+    <div class="field"><label>Blend pouches sold (optional, makes stock forecasts smarter)</label><div class="blend-sales">${CRAIC_BLENDS.map(x=>`<div class="field"><label>${esc(x)}</label><input type="number" min="0" step="1" inputmode="numeric" name="blend_${esc(x)}" value="${esc(blendSalesFromEvent(e)[x]??'')}"></div>`).join('')}</div></div>
     <div class="field"><label>Would you book again?</label><select name="bookAgain">${['','Yes','Maybe','No'].map(x=>`<option ${e.results?.bookAgain===x?'selected':''}>${x}</option>`).join('')}</select></div>
     <div class="field"><label>Result notes / context</label><textarea name="resultNotes">${esc(e.results?.notes||'')}</textarea></div>
     ${e.results&&e.results.takings!==''&&e.results.takings!=null?`<div class="result-grid"><div class="metric"><span class="muted">Net after event costs</span><b>${money(eventNet(e))}</b></div><div class="metric"><span class="muted">Trading hours</span><b>${hoursBetween(e.tradeStart,e.tradeFinish).toFixed(1)}</b></div><div class="metric"><span class="muted">Net / hour</span><b>${money(eventHourly(e))}</b></div></div>`:''}
@@ -253,7 +268,7 @@ function openEvent(id,marketId){
       tradeStart:f.get('tradeStart'),tradeFinish:f.get('tradeFinish'),packStart:e.packStart||'',
       packFinish:f.get('packFinish'),pitch:f.get('pitch'),parking:f.get('parking'),
       instructions:f.get('instructions'),notes:e.notes||'',checklist,
-      results:{takings:f.get('takings'),cash:f.get('cash'),card:f.get('card'),returnMiles:f.get('returnMiles'),travelCost:f.get('travelCost'),expenses,otherCosts:expenses.reduce((a,x)=>a+Number(x.amount||0),0),footfall:f.get('footfall'),weather:f.get('weather'),bookAgain:f.get('bookAgain'),notes:f.get('resultNotes')}
+      results:{takings:f.get('takings'),cash:f.get('cash'),card:f.get('card'),returnMiles:f.get('returnMiles'),travelCost:f.get('travelCost'),expenses,otherCosts:expenses.reduce((a,x)=>a+Number(x.amount||0),0),footfall:f.get('footfall'),weather:f.get('weather'),blendSales:Object.fromEntries(CRAIC_BLENDS.map(x=>[x,Number(f.get('blend_'+x)||0)])),bookAgain:f.get('bookAgain'),notes:f.get('resultNotes')}
     };
     upsert(data.events,ne);
     $('#modal').close();
