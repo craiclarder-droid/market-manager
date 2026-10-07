@@ -118,19 +118,40 @@ function forecastForEvent(e){
  return {expected,pouches,buffer,byBlend,profile,confidence:confidenceLabel(st?.count||0,profile.events)};
 }
 function marketStats(mid){let es=data.events.filter(e=>e.marketId===mid&&e.results&&e.results.takings!==''&&e.results.takings!=null);if(!es.length)return null;let vals=es.map(e=>Number(e.results.takings||0));return {count:es.length,avg:vals.reduce((a,b)=>a+b,0)/vals.length,best:Math.max(...vals),worst:Math.min(...vals),avgNet:es.reduce((a,e)=>a+eventNet(e),0)/es.length,avgHourly:es.reduce((a,e)=>a+eventHourly(e),0)/es.length}}
+function marketDecision(mid){
+ let st=marketStats(mid),es=data.events.filter(e=>e.marketId===mid&&e.results&&e.results.takings!==''&&e.results.takings!=null);
+ if(!st)return {label:'Unproven',tone:'neutral',reason:'No trading results logged yet.',score:null};
+ let yes=es.filter(e=>e.results?.bookAgain==='Yes').length,no=es.filter(e=>e.results?.bookAgain==='No').length;
+ let score=0;
+ if(st.avgNet>=300)score+=3;else if(st.avgNet>=180)score+=2;else if(st.avgNet>=100)score+=1;else if(st.avgNet<60)score-=2;
+ if(st.avgHourly>=60)score+=2;else if(st.avgHourly>=35)score+=1;else if(st.avgHourly&&st.avgHourly<20)score-=1;
+ score+=yes?1:0;score-=no?1:0;
+ let label=score>=4?'Strong':score>=1?'Retest':score<=-2&&st.count>=2?'Avoid':'Weak';
+ if(st.count===1&&label==='Avoid')label='Retest';
+ let reason=st.count+' result'+(st.count===1?'':'s')+' · avg net '+money(st.avgNet)+' · '+money(st.avgHourly)+'/hr';
+ if(st.count===1)reason+=' · one result is not enough to write it off';
+ return {label,tone:label.toLowerCase(),reason,score};
+}
+function clashSummary(e){let n=eventClashes(e);return n?'<span class="badge warning">⚠ '+n+' clash'+(n===1?'':'es')+'</span>':''}
+function prepSummary(){
+ let next=data.events.filter(e=>e.date>=today()&&['Booked','Paid'].includes(e.status)).sort((a,b)=>a.date.localeCompare(b.date))[0];
+ if(!next)return null;let f=forecastForEvent(next);return {event:next,forecast:f};
+}
 
 $('#nav').onclick=e=>{if(e.target.dataset.page){page=e.target.dataset.page;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));render()}};
 $('#addBtn').onclick=()=>openMarket();
 function render(){const a=$('#app'); if(page==='home')a.innerHTML=home(); else if(page==='markets')a.innerHTML=marketsPage(); else if(page==='calendar')a.innerHTML=calendarPage(); else if(page==='applications')a.innerHTML=applicationsPage(); else if(page==='stock')a.innerHTML=stockPage(); else a.innerHTML=settingsPage(); bind();}
 function home(){
  const upcoming=[...data.events].filter(e=>e.date>=today()&&activeEvent(e)).sort((a,b)=>a.date.localeCompare(b.date));
- const unpaid=upcoming.filter(e=>['Offered','Booked','Paid'].includes(e.status)&&!e.paid), q=actionQueue();
- return `<h2>Dashboard</h2><div class="grid"><div class="card"><div class="muted">Upcoming events</div><div class="stat">${upcoming.length}</div></div><div class="card"><div class="muted">Need paid</div><div class="stat">${unpaid.length}</div></div><div class="card"><div class="muted">Actions due</div><div class="stat">${q.length}</div></div></div>
+ const unpaid=upcoming.filter(e=>['Offered','Booked','Paid'].includes(e.status)&&!e.paid), q=actionQueue(),prep=prepSummary();
+ const clashes=upcoming.filter(e=>eventClashes(e));
+ return `<h2>Dashboard</h2><div class="grid"><div class="card"><div class="muted">Upcoming events</div><div class="stat">${upcoming.length}</div></div><div class="card"><div class="muted">Need paid</div><div class="stat">${unpaid.length}</div></div><div class="card"><div class="muted">Actions due</div><div class="stat">${q.length}</div></div><div class="card"><div class="muted">Clashes</div><div class="stat">${clashes.length}</div></div></div>
+ ${prep?`<div class="card focus-card"><div class="row"><div><div class="muted">NEXT MARKET PREP</div><h3>${esc(market(prep.event.marketId)?.name||'Market')} · ${fmtDate(prep.event.date)}</h3>${prep.forecast.buffer?`<div>Plan around <b>${prep.forecast.buffer} pouches</b> · ${prep.forecast.confidence} forecast confidence</div>`:'<div>Log previous results to unlock a stock forecast.</div>'}</div><button data-action="editEvent" data-id="${prep.event.id}">Open event</button></div></div>`:''}
  <h3>Action queue</h3>${q.slice(0,8).map(x=>`<div class="card action-card"><div class="row"><div><b>${esc(x.text)}</b><div class="muted">${x.kind} · ${fmtDate(x.date)} · ${x.due<0?Math.abs(x.due)+' days overdue':x.due===0?'due today':x.due+' days'}</div></div><button data-action="editEvent" data-id="${x.event.id}">Open</button></div></div>`).join('')||'<div class="card empty">Nothing urgent. You are clear.</div>'}
  <h3>Next up</h3>${upcoming.slice(0,4).map(eventCard).join('')||'<div class="card empty">Nothing upcoming yet.</div>'}`;
 }
-function marketsPage(){return `<div class="row"><div><h2>Markets</h2><div class="muted">Organiser → market → individual event</div></div><button class="primary" data-action="addMarket">+ Add market</button></div><br>${data.markets.map(m=>{const o=organiser(m.organiserId), es=data.events.filter(e=>e.marketId===m.id).sort((a,b)=>a.date.localeCompare(b.date));let st=marketStats(m.id);return `<div class="card"><div class="row"><div><h3>${esc(m.name)}</h3><div class="muted">${esc(m.town)} · ${esc(o?.name||'No organiser')} · ${esc(m.frequency||'No frequency')}</div>${st?`<div class="performance"><b>${st.count} result${st.count===1?'':'s'} · Avg ${money(st.avg)} · Avg net ${money(st.avgNet)} · ${money(st.avgHourly)}/hr</b><div class="muted">Best ${money(st.best)} · Worst ${money(st.worst)}</div></div>`:''}</div><div><button data-action="editMarket" data-id="${m.id}">Edit</button> <button data-action="addEvent" data-id="${m.id}" class="primary">+ Event</button></div></div>${es.length?es.map(eventCard).join(''):'<p class="muted">No event dates yet.</p>'}</div>`}).join('')||'<div class="card empty">No markets yet.</div>'}`}
-function eventCard(e){const m=market(e.marketId);return `<div class="card event"><div class="row"><div><b>${esc(m?.name||'Market')}</b><div>${fmtDate(e.date)} · ${esc(e.tradeStart||'?')}–${esc(e.tradeFinish||'?')}</div><span class="badge">${esc(e.status)}</span>${e.paid?'<span class="badge">Paid ✓</span>':'<span class="badge">Unpaid</span>'}${e.results&&e.results.takings!==''&&e.results.takings!=null?`<span class="badge">Takings ${money(e.results.takings)}</span><span class="badge">Net ${money(eventNet(e))}</span>`:''}</div><div><button data-action="editEvent" data-id="${e.id}">Open</button></div></div></div>`}
+function marketsPage(){return `<div class="row"><div><h2>Markets</h2><div class="muted">Organiser → market → individual event</div></div><button class="primary" data-action="addMarket">+ Add market</button></div><br>${data.markets.map(m=>{const o=organiser(m.organiserId), es=data.events.filter(e=>e.marketId===m.id).sort((a,b)=>a.date.localeCompare(b.date));let st=marketStats(m.id),dec=marketDecision(m.id);return `<div class="card"><div class="row"><div><h3>${esc(m.name)} <span class="decision ${dec.tone}">${dec.label}</span></h3><div class="muted">${esc(m.town)} · ${esc(o?.name||'No organiser')} · ${esc(m.frequency||'No frequency')}</div>${st?`<div class="performance"><b>${st.count} result${st.count===1?'':'s'} · Avg ${money(st.avg)} · Avg net ${money(st.avgNet)} · ${money(st.avgHourly)}/hr</b><div class="muted">Best ${money(st.best)} · Worst ${money(st.worst)}</div><div class="decision-reason">${esc(dec.reason)}</div></div>`:`<div class="decision-reason">${esc(dec.reason)}</div>`}</div><div><button data-action="editMarket" data-id="${m.id}">Edit</button> <button data-action="addEvent" data-id="${m.id}" class="primary">+ Event</button></div></div>${es.length?es.map(eventCard).join(''):'<p class="muted">No event dates yet.</p>'}</div>`}).join('')||'<div class="card empty">No markets yet.</div>'}`}
+function eventCard(e){const m=market(e.marketId);return `<div class="card event"><div class="row"><div><b>${esc(m?.name||'Market')}</b> ${clashSummary(e)}<div>${fmtDate(e.date)} · ${esc(e.tradeStart||'?')}–${esc(e.tradeFinish||'?')}</div><span class="badge">${esc(e.status)}</span>${e.paid?'<span class="badge">Paid ✓</span>':'<span class="badge">Unpaid</span>'}${e.results&&e.results.takings!==''&&e.results.takings!=null?`<span class="badge">Takings ${money(e.results.takings)}</span><span class="badge">Net ${money(eventNet(e))}</span>`:''}</div><div><button data-action="editEvent" data-id="${e.id}">Open</button></div></div></div>`}
 function calendarPage(){
  let y=calendarCursor.getFullYear(),mo=calendarCursor.getMonth(),first=new Date(y,mo,1),last=new Date(y,mo+1,0),offset=(first.getDay()+6)%7,cells='';
  for(let i=0;i<offset;i++)cells+='<div></div>';
