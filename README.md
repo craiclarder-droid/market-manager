@@ -29,3 +29,10 @@ Full calendar navigation, clash detection, improved organiser reuse, dashboard a
 - Fixes Settings checklist Add/Remove controls so they cannot submit or reset anything.
 - Adds "Restore Craic standard list" as a safe recovery button.
 - Existing markets and event records are preserved.
+
+## Checklist Locked Patch
+- Craic's 31-item market checklist is now the canonical master checklist.
+- A one-time migration replaces the old short default checklist.
+- Every newly-created event copies the 31-item master list.
+- Existing saved markets and existing event checklists are not overwritten.
+- After migration, the master list remains editable in Settings.
