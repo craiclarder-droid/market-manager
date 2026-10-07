@@ -23,3 +23,9 @@ Full calendar navigation, clash detection, improved organiser reuse, dashboard a
 - Fixed event checklist add/remove wiping unsaved form fields.
 - Added Craic Larder's standard market checklist as the default for new events.
 - Existing saved markets/events are preserved.
+
+## Cycle 1 Fix 2
+- Migrates the older eight-item live default checklist to Craic's full standard checklist.
+- Fixes Settings checklist Add/Remove controls so they cannot submit or reset anything.
+- Adds "Restore Craic standard list" as a safe recovery button.
+- Existing markets and event records are preserved.
