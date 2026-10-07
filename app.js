@@ -1,3 +1,8 @@
+const SUPABASE_URL = "https://svbappqtjnkivjbcxcpg.supabase.co";
+const SUPABASE_KEY = "sb_publishable_ZzpDMdUmxkcHu00qnaA4QA_OBaT5KJi";
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const CLOUD_TABLE = "market_manager_data";
+
 const KEY='market-manager-v1';
 const CRAIC_MASTER_CHECKLIST=["Popcorn", "Apron", "Seasoning for popcorn", "Allergen cards", "Signage", "Bucket for waste water", "Soap", "Blue roll", "Bags", "Gloves", "Honey", "Blends x 7", "Craic stickers", "First aid kit", "Blackboard", "Blue tack", "Tubs", "Spoons", "Elevators (plastic crates)", "Tester cups", "Strut cards", "Card machine", "Change", "Tablecloth", "Water tank & tap", "Lights", "Clips", "Crates", "Banners", "Bungees", "Fairy lights"];
 const statuses=['Discovered','Interested','Applying','Applied','Waiting List','Offered','Booked','Paid','Completed','Declined','Cancelled','Ignored'];
@@ -15,7 +20,56 @@ if (data.settings.craicChecklistVersion !== 1) {
   data.settings.craicChecklistVersion = 1;
   localStorage.setItem(KEY, JSON.stringify(data));
 }
-function save(){localStorage.setItem(KEY,JSON.stringify(data));render()}
+function save(){
+  localStorage.setItem(KEY,JSON.stringify(data));
+  render();
+  saveToCloud();
+}
+async function saveToCloud(){
+  const { data: { user } } = await supabaseClient.auth.getUser();
+  if(!user) return false;
+  const { error } = await supabaseClient.from(CLOUD_TABLE).upsert({
+    id:user.id,
+    data,
+    updated_at:new Date().toISOString()
+  },{onConflict:"id"});
+  if(error){console.error("Market Manager cloud save failed:",error);return false;}
+  return true;
+}
+async function loadFromCloud(){
+  const { data: { user } } = await supabaseClient.auth.getUser();
+  if(!user) return "no-user";
+  const { data:row,error } = await supabaseClient.from(CLOUD_TABLE).select("data").eq("id",user.id).maybeSingle();
+  if(error){console.error("Market Manager cloud load failed:",error);return "error";}
+  if(row?.data){
+    data=row.data;
+    localStorage.setItem(KEY,JSON.stringify(data));
+    return "loaded";
+  }
+  const ok=await saveToCloud();
+  return ok?"seeded":"error";
+}
+async function marketManagerLogin(){
+  const email=document.getElementById("mmLoginEmail").value.trim();
+  const password=document.getElementById("mmLoginPassword").value;
+  const status=document.getElementById("mmLoginStatus");
+  if(!email||!password){status.textContent="Enter your email and password.";return;}
+  status.textContent="Connecting...";
+  const {error}=await supabaseClient.auth.signInWithPassword({email,password});
+  if(error){status.textContent="Login failed: "+error.message;return;}
+  await startMarketManager();
+}
+function showMarketLogin(){
+  document.getElementById("app").innerHTML=`<div class="card" style="max-width:520px;margin:32px auto">
+    <h2>Market Manager Cloud Login</h2>
+    <p class="muted">Use the same Craic cloud login as Craic HQ.</p>
+    <label>Email</label><input id="mmLoginEmail" type="email" autocomplete="email">
+    <label>Password</label><input id="mmLoginPassword" type="password" autocomplete="current-password">
+    <div class="actions"><button class="primary" onclick="marketManagerLogin()">Log in & connect cloud</button></div>
+    <p id="mmLoginStatus" class="muted"></p>
+  </div>`;
+}
+window.marketManagerLogin=marketManagerLogin;
 const $=s=>document.querySelector(s); const uid=p=>p+Date.now()+Math.random().toString(16).slice(2);
 function esc(s=''){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function market(id){return data.markets.find(x=>x.id===id)} function organiser(id){return data.organisers.find(x=>x.id===id)}
@@ -174,4 +228,14 @@ function openEvent(id,marketId){
 }
 function openEventObject(obj,id){let idx=data.events.findIndex(x=>x.id===obj.id); if(idx>=0)data.events[idx]=obj; else if(id){} openEvent(id||null,obj.marketId)}
 function openPersonal(){let title=prompt('What is it? e.g. Butcher shift, holiday, appointment');if(!title)return;let date=prompt('Date (YYYY-MM-DD)');if(date){data.personal.push({id:uid('p'),title,date});save()}}
-render();
+async function startMarketManager(){
+  const { data: { user } } = await supabaseClient.auth.getUser();
+  if(!user){showMarketLogin();return;}
+  const result=await loadFromCloud();
+  if(result==="error"){
+    document.getElementById("app").innerHTML='<div class="card"><h2>Cloud connection failed</h2><p>Market Manager could not read/write Supabase. Check the market_manager_data permissions.</p></div>';
+    return;
+  }
+  render();
+}
+startMarketManager();
