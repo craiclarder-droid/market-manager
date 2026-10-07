@@ -8,6 +8,8 @@ function load(){try{return JSON.parse(localStorage.getItem(KEY))||structuredClon
 
 // One-time master-checklist migration. Existing event checklists are intentionally untouched.
 data.settings = data.settings || {};
+data.settings.basePostcode = data.settings.basePostcode || 'PA2 8TR';
+data.settings.mileageRate = Number(data.settings.mileageRate || 0.55);
 if (data.settings.craicChecklistVersion !== 1) {
   data.settings.defaultChecklist = [...CRAIC_MASTER_CHECKLIST];
   data.settings.craicChecklistVersion = 1;
@@ -20,7 +22,8 @@ function market(id){return data.markets.find(x=>x.id===id)} function organiser(i
 function fmtDate(x){if(!x)return'';return new Intl.DateTimeFormat('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'}).format(new Date(x+'T12:00:00'))}
 function money(x){return new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'}).format(Number(x||0))}
 function hoursBetween(a,b){if(!a||!b)return 0;let [ah,am]=a.split(':').map(Number),[bh,bm]=b.split(':').map(Number);let mins=(bh*60+bm)-(ah*60+am);return mins>0?mins/60:0}
-function eventNet(e){return Number(e.results?.takings||0)-Number(e.pitchFee||0)-Number(e.results?.travelCost||0)-Number(e.results?.otherCosts||0)}
+function expenseTotal(e){const xs=e.results?.expenses;if(Array.isArray(xs))return xs.reduce((a,x)=>a+Number(x.amount||0),0);return Number(e.results?.otherCosts||0)}
+function eventNet(e){return Number(e.results?.takings||0)-Number(e.pitchFee||0)-Number(e.results?.travelCost||0)-expenseTotal(e)}
 function eventHourly(e){let h=hoursBetween(e.tradeStart,e.tradeFinish);return h?eventNet(e)/h:0}
 function marketStats(mid){let es=data.events.filter(e=>e.marketId===mid&&e.results&&e.results.takings!==''&&e.results.takings!=null);if(!es.length)return null;let vals=es.map(e=>Number(e.results.takings||0));return {count:es.length,avg:vals.reduce((a,b)=>a+b,0)/vals.length,best:Math.max(...vals),worst:Math.min(...vals),avgNet:es.reduce((a,e)=>a+eventNet(e),0)/es.length,avgHourly:es.reduce((a,e)=>a+eventHourly(e),0)/es.length}}
 
@@ -31,17 +34,19 @@ function home(){const upcoming=[...data.events].filter(e=>e.date>=new Date().toI
 function marketsPage(){return `<div class="row"><div><h2>Markets</h2><div class="muted">Organiser → market → individual event</div></div><button class="primary" data-action="addMarket">+ Add market</button></div><br>${data.markets.map(m=>{const o=organiser(m.organiserId), es=data.events.filter(e=>e.marketId===m.id).sort((a,b)=>a.date.localeCompare(b.date));let st=marketStats(m.id);return `<div class="card"><div class="row"><div><h3>${esc(m.name)}</h3><div class="muted">${esc(m.town)} · ${esc(o?.name||'No organiser')} · ${esc(m.frequency||'No frequency')}</div>${st?`<div class="performance"><b>${st.count} result${st.count===1?'':'s'} · Avg ${money(st.avg)} · Avg net ${money(st.avgNet)} · ${money(st.avgHourly)}/hr</b><div class="muted">Best ${money(st.best)} · Worst ${money(st.worst)}</div></div>`:''}</div><div><button data-action="editMarket" data-id="${m.id}">Edit</button> <button data-action="addEvent" data-id="${m.id}" class="primary">+ Event</button></div></div>${es.length?es.map(eventCard).join(''):'<p class="muted">No event dates yet.</p>'}</div>`}).join('')||'<div class="card empty">No markets yet.</div>'}`}
 function eventCard(e){const m=market(e.marketId);return `<div class="card event"><div class="row"><div><b>${esc(m?.name||'Market')}</b><div>${fmtDate(e.date)} · ${esc(e.tradeStart||'?')}–${esc(e.tradeFinish||'?')}</div><span class="badge">${esc(e.status)}</span>${e.paid?'<span class="badge">Paid ✓</span>':'<span class="badge">Unpaid</span>'}${e.results&&e.results.takings!==''&&e.results.takings!=null?`<span class="badge">Takings ${money(e.results.takings)}</span><span class="badge">Net ${money(eventNet(e))}</span>`:''}</div><div><button data-action="editEvent" data-id="${e.id}">Open</button></div></div></div>`}
 function calendarPage(){let now=new Date();let y=now.getFullYear(),mo=now.getMonth();let first=new Date(y,mo,1), last=new Date(y,mo+1,0), offset=(first.getDay()+6)%7;let cells='';for(let i=0;i<offset;i++)cells+='<div></div>';for(let d=1;d<=last.getDate();d++){let ds=`${y}-${String(mo+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;let es=data.events.filter(e=>e.date===ds);let ps=data.personal.filter(e=>e.date===ds);cells+=`<div class="day"><b>${d}</b>${es.map(e=>`<div class="calitem">${esc(market(e.marketId)?.name||'Market')}</div>`).join('')}${ps.map(e=>`<div class="calitem">${esc(e.title)}</div>`).join('')}</div>`}return `<div class="row"><div><h2>Calendar</h2><div class="muted">${first.toLocaleString('en-GB',{month:'long',year:'numeric'})}</div></div><button data-action="addPersonal">+ Add personal item</button></div><br><div class="calendar">${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(x=>`<b>${x}</b>`).join('')}${cells}</div><p class="muted">Full month navigation and clash detection arrive in the next Cycle 1 pass.</p>`}
-function settingsPage(){return `<h2>Settings</h2><div class="card"><h3>Default market checklist</h3><p class="muted">New events copy this list. Editing an event checklist never changes this master list.</p><div id="defaultChecks">${data.settings.defaultChecklist.map((x,i)=>`<div class="row"><span>${esc(x)}</span><button data-action="removeDefault" data-i="${i}">Remove</button></div>`).join('')}</div><br><button data-action="addDefault">+ Add item</button></div><div class="card"><h3>Data</h3><p class="muted">Cycle 1 stores data in this browser so it survives refreshes. Cloud sync can replace this data layer later.</p><button data-action="export">Export backup</button> <button data-action="reset" class="danger">Reset demo data</button></div>`}
+function settingsPage(){return `<h2>Settings</h2><div class="card"><h3>Travel</h3><div class="two">${field('Craic base postcode','basePostcode',data.settings.basePostcode)}${field('Mileage rate (£/mile)','mileageRate',data.settings.mileageRate,'number')}</div><p class="muted">Return mileage × rate. Default rate is 55p/mile for 2026/27.</p><button data-action="saveTravel">Save travel settings</button></div><div class="card"><h3>Default market checklist</h3><p class="muted">New events copy this list. Editing an event checklist never changes this master list.</p><div id="defaultChecks">${data.settings.defaultChecklist.map((x,i)=>`<div class="row"><span>${esc(x)}</span><button data-action="removeDefault" data-i="${i}">Remove</button></div>`).join('')}</div><br><button data-action="addDefault">+ Add item</button></div><div class="card"><h3>Data</h3><p class="muted">Cycle 1 stores data in this browser so it survives refreshes. Cloud sync can replace this data layer later.</p><button data-action="export">Export backup</button> <button data-action="reset" class="danger">Reset demo data</button></div>`}
 function placeholder(t,s){return `<h2>${t}</h2><div class="card empty">${s}</div>`}
 function bind(){document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>action(b.dataset.action,b.dataset.id,b.dataset.i))}
-function action(a,id,i){if(a==='addMarket')openMarket(); if(a==='editMarket')openMarket(id); if(a==='addEvent')openEvent(null,id); if(a==='editEvent')openEvent(id); if(a==='addPersonal')openPersonal(); if(a==='removeDefault'){data.settings.defaultChecklist.splice(+i,1);save()} if(a==='addDefault'){let x=prompt('Checklist item');if(x){data.settings.defaultChecklist.push(x);save()}} if(a==='export'){let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download='market-manager-backup.json';a.click();URL.revokeObjectURL(u)} if(a==='reset'&&confirm('Reset everything back to demo data?')){data=structuredClone(demo);save()}}
-function field(label,name,val='',type='text'){return `<div class="field"><label>${label}</label><input type="${type}" name="${name}" value="${esc(val??'')}"></div>`}
+function action(a,id,i){if(a==='saveTravel'){let bp=document.querySelector('[name="basePostcode"]'),mr=document.querySelector('[name="mileageRate"]');data.settings.basePostcode=(bp?.value||'PA2 8TR').trim().toUpperCase();data.settings.mileageRate=Number(mr?.value||0.55);save();return;}if(a==='addMarket')openMarket(); if(a==='editMarket')openMarket(id); if(a==='addEvent')openEvent(null,id); if(a==='editEvent')openEvent(id); if(a==='addPersonal')openPersonal(); if(a==='removeDefault'){data.settings.defaultChecklist.splice(+i,1);save()} if(a==='addDefault'){let x=prompt('Checklist item');if(x){data.settings.defaultChecklist.push(x);save()}} if(a==='export'){let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download='market-manager-backup.json';a.click();URL.revokeObjectURL(u)} if(a==='reset'&&confirm('Reset everything back to demo data?')){data=structuredClone(demo);save()}}
+function field(label,name,val='',type='text'){let extra=type==='number'?' step="0.01" inputmode="decimal"':'';return `<div class="field"><label>${label}</label><input type="${type}"${extra} name="${name}" value="${esc(val??'')}"></div>`}
 function openMarket(id){let m=id?market(id):{}, o=id?organiser(m.organiserId):{};$('#formBody').innerHTML=`<h2>${id?'Edit':'Add'} market</h2><div class="stack">${field('Market name','name',m.name)}<div class="two">${field('Venue','venue',m.venue)}${field('Town / city','town',m.town)}</div>${field('Address / postcode','address',m.address)}<div class="two">${field('Typical frequency','frequency',m.frequency)}${field('Typical pitch fee (£)','typicalFee',m.typicalFee,'number')}</div><div class="field"><label>Indoor / outdoor</label><select name="setting">${['','Indoor','Outdoor','Mixed'].map(x=>`<option ${m.setting===x?'selected':''}>${x}</option>`).join('')}</select></div>${field('Application URL','applicationUrl',m.applicationUrl)}<hr><h3>Organiser</h3>${field('Organiser name','orgName',o.name)}<div class="two">${field('Contact name','contactName',o.contactName)}${field('Email','email',o.email,'email')}</div><div class="two">${field('Phone','phone',o.phone)}${field('Website','website',o.website)}</div>${field('Instagram','instagram',o.instagram)}${field('Facebook','facebook',o.facebook)}<div class="field"><label>Notes</label><textarea name="notes">${esc(m.notes||'')}</textarea></div>${id?'<button type="button" class="danger" id="deleteMarket">Delete market</button>':''}</div>`;$('#modal').showModal();$('#form').onsubmit=e=>{e.preventDefault();let f=new FormData(e.target), oid=o.id||uid('o'), mid=m.id||uid('m');let org={id:oid,name:f.get('orgName'),contactName:f.get('contactName'),email:f.get('email'),phone:f.get('phone'),website:f.get('website'),instagram:f.get('instagram'),facebook:f.get('facebook'),notes:o.notes||''};let nm={id:mid,name:f.get('name'),organiserId:oid,venue:f.get('venue'),town:f.get('town'),address:f.get('address'),frequency:f.get('frequency'),typicalFee:+f.get('typicalFee')||0,setting:f.get('setting'),applicationUrl:f.get('applicationUrl'),notes:f.get('notes')};upsert(data.organisers,org);upsert(data.markets,nm);$('#modal').close();save()};if(id)$('#deleteMarket').onclick=()=>{if(confirm('Delete this market AND all its event dates?')){data.events=data.events.filter(e=>e.marketId!==id);data.markets=data.markets.filter(x=>x.id!==id);$('#modal').close();save()}}}
 function upsert(arr,x){let i=arr.findIndex(y=>y.id===x.id);if(i>=0)arr[i]=x;else arr.push(x)}
 function openEvent(id,marketId){
   let e=id?data.events.find(x=>x.id===id):{marketId,status:'Interested',paid:false,checklist:CRAIC_MASTER_CHECKLIST.map(x=>({id:uid('c'),text:x,done:false}))};
   let m=market(e.marketId);
   let checklist=structuredClone(e.checklist||[]);
+  let expenses=Array.isArray(e.results?.expenses)?structuredClone(e.results.expenses):[];
+  if(!expenses.length && Number(e.results?.otherCosts||0)>0) expenses=[{id:uid('x'),description:'Previous other event costs',amount:Number(e.results.otherCosts)}];
 
   function checkRow(c,i){
     return `<div class="check" data-check-row="${i}">
@@ -74,8 +79,9 @@ function openEvent(id,marketId){
     <h3>Market results</h3>
     <p class="muted">Fill this in after trading. Leave it blank beforehand.</p>
     <div class="two">${field('Total takings (£)','takings',e.results?.takings??'','number')}${field('Cash (£) - optional','cash',e.results?.cash??'','number')}</div>
-    <div class="two">${field('Card (£) - optional','card',e.results?.card??'','number')}${field('Travel / fuel (£)','travelCost',e.results?.travelCost??'','number')}</div>
-    ${field('Other event costs (£)','otherCosts',e.results?.otherCosts??'','number')}
+    <div class="two">${field('Card (£) - optional','card',e.results?.card??'','number')}${field('Return mileage','returnMiles',e.results?.returnMiles??'','number')}</div>
+    <div class="two">${field('Travel cost (£)','travelCost',e.results?.travelCost??'','number')}<div class="field"><label>Mileage calculator</label><button type="button" id="calcMileage">Calculate from return miles</button><div class="muted">${esc(data.settings.basePostcode)} · ${money(data.settings.mileageRate)}/mile</div></div></div>
+    <div class="field"><label>Event expenses</label><div id="expenses"></div><div class="two"><input id="expenseDesc" placeholder="e.g. Curry / networking"><input id="expenseAmount" type="number" step="0.01" inputmode="decimal" placeholder="£"></div><button type="button" id="addExpense">+ Add expense</button><p class="muted">Parking, networking food, one-off supplies etc. Mileage stays separate.</p></div>
     <div class="two"><div class="field"><label>Footfall</label><select name="footfall">${['','Poor','Average','Busy'].map(x=>`<option ${e.results?.footfall===x?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Weather</label><select name="weather">${['','Poor','OK','Good'].map(x=>`<option ${e.results?.weather===x?'selected':''}>${x}</option>`).join('')}</select></div></div>
     <div class="field"><label>Would you book again?</label><select name="bookAgain">${['','Yes','Maybe','No'].map(x=>`<option ${e.results?.bookAgain===x?'selected':''}>${x}</option>`).join('')}</select></div>
     <div class="field"><label>Result notes / context</label><textarea name="resultNotes">${esc(e.results?.notes||'')}</textarea></div>
@@ -87,6 +93,23 @@ function openEvent(id,marketId){
   </div>`;
 
   $('#modal').showModal();
+
+  function renderExpenses(){
+    let box=$('#expenses'); if(!box)return;
+    box.innerHTML=expenses.length?expenses.map((x,i)=>`<div class="row"><span>${esc(x.description)} · ${money(x.amount)}</span><button type="button" data-exp-rm="${i}">Remove</button></div>`).join(''):'<div class="muted">No extra expenses.</div>';
+    box.querySelectorAll('[data-exp-rm]').forEach(b=>b.onclick=()=>{expenses.splice(+b.dataset.expRm,1);renderExpenses()});
+  }
+  renderExpenses();
+  $('#addExpense').onclick=()=>{
+    let d=$('#expenseDesc').value.trim(), a=Number($('#expenseAmount').value);
+    if(!d || !(a>0))return;
+    expenses.push({id:uid('x'),description:d,amount:a});
+    $('#expenseDesc').value=''; $('#expenseAmount').value=''; renderExpenses();
+  };
+  $('#calcMileage').onclick=()=>{
+    let miles=Number(document.querySelector('[name="returnMiles"]').value||0);
+    document.querySelector('[name="travelCost"]').value=(miles*Number(data.settings.mileageRate||0.55)).toFixed(2);
+  };
 
   function syncChecklistFromDom(){
     document.querySelectorAll('[data-text]').forEach(inp=>{
@@ -134,7 +157,7 @@ function openEvent(id,marketId){
       tradeStart:f.get('tradeStart'),tradeFinish:f.get('tradeFinish'),packStart:e.packStart||'',
       packFinish:f.get('packFinish'),pitch:f.get('pitch'),parking:f.get('parking'),
       instructions:f.get('instructions'),notes:e.notes||'',checklist,
-      results:{takings:f.get('takings'),cash:f.get('cash'),card:f.get('card'),travelCost:f.get('travelCost'),otherCosts:f.get('otherCosts'),footfall:f.get('footfall'),weather:f.get('weather'),bookAgain:f.get('bookAgain'),notes:f.get('resultNotes')}
+      results:{takings:f.get('takings'),cash:f.get('cash'),card:f.get('card'),returnMiles:f.get('returnMiles'),travelCost:f.get('travelCost'),expenses,otherCosts:expenses.reduce((a,x)=>a+Number(x.amount||0),0),footfall:f.get('footfall'),weather:f.get('weather'),bookAgain:f.get('bookAgain'),notes:f.get('resultNotes')}
     };
     upsert(data.events,ne);
     $('#modal').close();

@@ -39,3 +39,11 @@ Full calendar navigation, clash detection, improved organiser reuse, dashboard a
 
 ## Cycle 2 - Market Performance
 Adds post-market takings, cash/card, travel and other costs, footfall, weather, rebook judgement, notes, automatic net and net/hour, plus per-market averages/best/worst.
+
+## Cycle 2.1
+- All money inputs now accept pounds and pence (e.g. £209.50).
+- Base postcode stored as PA2 8TR; full home address is not stored.
+- Return mileage × configurable mileage rate calculates travel cost.
+- Default mileage rate: £0.55/mile for 2026/27.
+- Itemised event expenses with description + amount.
+- Existing legacy 'other costs' are migrated into an expense line when an event is opened.
