@@ -174,8 +174,8 @@ function action(a,id,i){if(a==='prevMonth'){calendarCursor=new Date(calendarCurs
 function field(label,name,val='',type='text'){let extra=type==='number'?' step="0.01" inputmode="decimal"':'';return `<div class="field"><label>${label}</label><input type="${type}"${extra} name="${name}" value="${esc(val??'')}"></div>`}
 function openMarket(id){let m=id?market(id):{}, o=id?organiser(m.organiserId):{};$('#formBody').innerHTML=`<h2>${id?'Edit':'Add'} market</h2><div class="stack">${field('Market name','name',m.name)}<div class="two">${field('Venue','venue',m.venue)}${field('Town / city','town',m.town)}</div>${field('Address / postcode','address',m.address)}<div class="two">${field('Typical frequency','frequency',m.frequency)}${field('Typical pitch fee (£)','typicalFee',m.typicalFee,'number')}</div><div class="field"><label>Indoor / outdoor</label><select name="setting">${['','Indoor','Outdoor','Mixed'].map(x=>`<option ${m.setting===x?'selected':''}>${x}</option>`).join('')}</select></div>${field('Application URL','applicationUrl',m.applicationUrl)}<hr><h3>Organiser</h3>${field('Organiser name','orgName',o.name)}<div class="two">${field('Contact name','contactName',o.contactName)}${field('Email','email',o.email,'email')}</div><div class="two">${field('Phone','phone',o.phone)}${field('Website','website',o.website)}</div>${field('Instagram','instagram',o.instagram)}${field('Facebook','facebook',o.facebook)}<div class="field"><label>Notes</label><textarea name="notes">${esc(m.notes||'')}</textarea></div>${id?'<button type="button" class="danger" id="deleteMarket">Delete market</button>':''}</div>`;$('#modal').showModal();$('#form').onsubmit=e=>{e.preventDefault();let f=new FormData(e.target), oid=o.id||uid('o'), mid=m.id||uid('m');let org={id:oid,name:f.get('orgName'),contactName:f.get('contactName'),email:f.get('email'),phone:f.get('phone'),website:f.get('website'),instagram:f.get('instagram'),facebook:f.get('facebook'),notes:o.notes||''};let nm={id:mid,name:f.get('name'),organiserId:oid,venue:f.get('venue'),town:f.get('town'),address:f.get('address'),frequency:f.get('frequency'),typicalFee:+f.get('typicalFee')||0,setting:f.get('setting'),applicationUrl:f.get('applicationUrl'),notes:f.get('notes')};upsert(data.organisers,org);upsert(data.markets,nm);$('#modal').close();save()};if(id)$('#deleteMarket').onclick=()=>{if(confirm('Delete this market AND all its event dates?')){data.events=data.events.filter(e=>e.marketId!==id);data.markets=data.markets.filter(x=>x.id!==id);$('#modal').close();save()}}}
 function upsert(arr,x){let i=arr.findIndex(y=>y.id===x.id);if(i>=0)arr[i]=x;else arr.push(x)}
-function openEvent(id,marketId){
-  let e=id?data.events.find(x=>x.id===id):{marketId,status:'Interested',paid:false,checklist:CRAIC_MASTER_CHECKLIST.map(x=>({id:uid('c'),text:x,done:false}))};
+function openEvent(id,marketId,draft=null){
+  let e=draft||(id?data.events.find(x=>x.id===id):{marketId,status:'Interested',paid:false,checklist:CRAIC_MASTER_CHECKLIST.map(x=>({id:uid('c'),text:x,done:false}))});
   let m=market(e.marketId);
   let checklist=structuredClone(e.checklist||[]);
   let expenses=Array.isArray(e.results?.expenses)?structuredClone(e.results.expenses):[];
@@ -225,7 +225,7 @@ function openEvent(id,marketId){
     <h3>Event checklist</h3>
     <div id="checks">${checklist.map(checkRow).join('')}</div>
     <button type="button" id="addCheck">+ Add checklist item</button>
-    ${id?'<button type="button" class="danger" id="deleteEvent">Delete event</button>':''}
+    ${id?'<button type="button" id="duplicateEvent">Duplicate event</button> <button type="button" class="danger" id="deleteEvent">Delete event</button>':''}
   </div>`;
 
   $('#modal').showModal();
@@ -316,6 +316,20 @@ function openEvent(id,marketId){
     upsert(data.events,ne);
     $('#modal').close();
     save();
+  };
+
+  if(id)$('#duplicateEvent').onclick=()=>{
+    const copy=structuredClone(e);
+    delete copy.id;
+    copy.date='';
+    copy.status='Booked';
+    copy.paid=false;
+    copy.applicationDeadline='';
+    copy.paymentDeadline='';
+    copy.results={};
+    copy.checklist=(copy.checklist||[]).map(c=>({...c,id:uid('c'),done:false}));
+    $('#modal').close();
+    openEvent(null,copy.marketId,copy);
   };
 
   if(id)$('#deleteEvent').onclick=()=>{
