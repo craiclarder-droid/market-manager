@@ -189,6 +189,7 @@ function openEvent(id,marketId){
 
   $('#formBody').innerHTML=`<h2>${id?'Event':'New event'} · ${esc(m?.name||'')}</h2><div class="stack">
     ${field('Date','date',e.date,'date')}
+    <div class="two"><div class="field"><label>Event type (optional)</label><select name="eventType">${['','Regular Market','Christmas Special','Summer Special','Night Market','Other'].map(x=>`<option value="${esc(x)}" ${(e.eventType||'')===x?'selected':''}>${esc(x||'Not specified')}</option>`).join('')}</select></div>${field('Special event name (optional)','eventTitle',e.eventTitle||'')}</div>
     <div class="two">
       <div class="field"><label>Status</label><select name="status">${statuses.map(x=>`<option ${e.status===x?'selected':''}>${x}</option>`).join('')}</select></div>
       ${field('Pitch fee (£)','pitchFee',e.pitchFee??m?.typicalFee,'number')}
@@ -301,7 +302,7 @@ function openEvent(id,marketId){
     syncProductSales();
     productSales=productSales.filter(p=>p.name.trim() && p.quantity!=='' && Number(p.quantity)>=0).map(p=>({name:p.name.trim(),quantity:Number(p.quantity)}));
     let f=new FormData(ev.target), ne={
-      ...e,id:e.id||uid('e'),marketId:e.marketId,date:f.get('date'),status:f.get('status'),
+      ...e,id:e.id||uid('e'),marketId:e.marketId,date:f.get('date'),eventType:f.get('eventType'),eventTitle:String(f.get('eventTitle')||'').trim(),status:f.get('status'),
       pitchFee:+f.get('pitchFee')||0,paid:f.get('paid')==='on',
       applicationDeadline:f.get('applicationDeadline'),paymentDeadline:f.get('paymentDeadline'),
       setupFrom:f.get('setupFrom'),arrivalDeadline:f.get('arrivalDeadline'),vehicleOut:f.get('vehicleOut'),
