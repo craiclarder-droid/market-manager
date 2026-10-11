@@ -215,6 +215,7 @@ function openEvent(id,marketId){
     <div class="field"><label>Event expenses</label><div id="expenses"></div><div class="two"><input id="expenseDesc" placeholder="e.g. Curry / networking"><input id="expenseAmount" type="number" step="0.01" inputmode="decimal" placeholder="£"></div><button type="button" id="addExpense">+ Add expense</button><p class="muted">Parking, networking food, one-off supplies etc. Mileage stays separate.</p></div>
     <div class="two"><div class="field"><label>Footfall</label><select name="footfall">${['','Poor','Average','Busy'].map(x=>`<option ${e.results?.footfall===x?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Weather</label><select name="weather">${['','Poor','OK','Good'].map(x=>`<option ${e.results?.weather===x?'selected':''}>${x}</option>`).join('')}</select></div></div>
     <div class="field"><label>Blend pouches sold (optional, makes stock forecasts smarter)</label><div class="blend-sales">${CRAIC_BLENDS.map(x=>`<div class="field"><label>${esc(x)}</label><input type="number" min="0" step="1" inputmode="numeric" name="blend_${esc(x)}" value="${esc(blendSalesFromEvent(e)[x]??'')}"></div>`).join('')}</div></div>
+    <div class="field"><label>Products sold (optional)</label><p class="muted">Track honey, gift sets or any product. Leave blank if you aren't counting individual items. Existing blend tracking stays separate.</p><div id="productSales"></div><button type="button" id="addProductSale">+ Add product sold</button></div>
     <div class="field"><label>Would you book again?</label><select name="bookAgain">${['','Yes','Maybe','No'].map(x=>`<option ${e.results?.bookAgain===x?'selected':''}>${x}</option>`).join('')}</select></div>
     <div class="field"><label>Result notes / context</label><textarea name="resultNotes">${esc(e.results?.notes||'')}</textarea></div>
     ${e.results&&e.results.takings!==''&&e.results.takings!=null?`<div class="result-grid"><div class="metric"><span class="muted">Net after event costs</span><b>${money(eventNet(e))}</b></div><div class="metric"><span class="muted">Trading hours</span><b>${hoursBetween(e.tradeStart,e.tradeFinish).toFixed(1)}</b></div><div class="metric"><span class="muted">Net / hour</span><b>${money(eventHourly(e))}</b></div></div>`:''}
@@ -231,6 +232,22 @@ function openEvent(id,marketId){
     box.innerHTML=expenses.length?expenses.map((x,i)=>`<div class="row"><span>${esc(x.description)} · ${money(x.amount)}</span><button type="button" data-exp-rm="${i}">Remove</button></div>`).join(''):'<div class="muted">No extra expenses.</div>';
     box.querySelectorAll('[data-exp-rm]').forEach(b=>b.onclick=()=>{expenses.splice(+b.dataset.expRm,1);renderExpenses()});
   }
+  let productSales=Array.isArray(e.results?.productSales)?structuredClone(e.results.productSales):[];
+  function syncProductSales(){
+    document.querySelectorAll('[data-product-row]').forEach((row,i)=>{
+      if(productSales[i]){
+        productSales[i].name=row.querySelector('[data-product-name]').value;
+        productSales[i].quantity=row.querySelector('[data-product-qty]').value;
+      }
+    });
+  }
+  function renderProductSales(){
+    const box=$('#productSales');
+    box.innerHTML=productSales.length?productSales.map((p,i)=>`<div class="row" data-product-row="${i}"><input data-product-name aria-label="Product name" placeholder="e.g. Honey 340g" value="${esc(p.name||'')}"><input data-product-qty aria-label="Quantity sold" type="number" min="0" step="1" inputmode="numeric" placeholder="Qty" value="${esc(p.quantity??'')}" style="max-width:90px"><button type="button" data-product-rm="${i}">Remove</button></div>`).join(''):'<p class="muted">No products added. Optional.</p>';
+    box.querySelectorAll('[data-product-rm]').forEach(b=>b.onclick=()=>{syncProductSales();productSales.splice(Number(b.dataset.productRm),1);renderProductSales()});
+  }
+  renderProductSales();
+  $('#addProductSale').onclick=()=>{syncProductSales();productSales.push({name:'',quantity:''});renderProductSales()};
   renderExpenses();
   $('#addExpense').onclick=()=>{
     let d=$('#expenseDesc').value.trim(), a=Number($('#expenseAmount').value);
@@ -281,6 +298,8 @@ function openEvent(id,marketId){
   $('#form').onsubmit=ev=>{
     ev.preventDefault();
     syncChecklistFromDom();
+    syncProductSales();
+    productSales=productSales.filter(p=>p.name.trim() && p.quantity!=='' && Number(p.quantity)>=0).map(p=>({name:p.name.trim(),quantity:Number(p.quantity)}));
     let f=new FormData(ev.target), ne={
       ...e,id:e.id||uid('e'),marketId:e.marketId,date:f.get('date'),status:f.get('status'),
       pitchFee:+f.get('pitchFee')||0,paid:f.get('paid')==='on',
@@ -289,7 +308,7 @@ function openEvent(id,marketId){
       tradeStart:f.get('tradeStart'),tradeFinish:f.get('tradeFinish'),packStart:e.packStart||'',
       packFinish:f.get('packFinish'),pitch:f.get('pitch'),parking:f.get('parking'),
       instructions:f.get('instructions'),notes:e.notes||'',checklist,
-      results:{takings:f.get('takings'),cash:f.get('cash'),card:f.get('card'),returnMiles:f.get('returnMiles'),travelCost:f.get('travelCost'),expenses,otherCosts:expenses.reduce((a,x)=>a+Number(x.amount||0),0),footfall:f.get('footfall'),weather:f.get('weather'),blendSales:Object.fromEntries(CRAIC_BLENDS.map(x=>[x,Number(f.get('blend_'+x)||0)])),bookAgain:f.get('bookAgain'),notes:f.get('resultNotes')}
+      results:{takings:f.get('takings'),cash:f.get('cash'),card:f.get('card'),returnMiles:f.get('returnMiles'),travelCost:f.get('travelCost'),expenses,otherCosts:expenses.reduce((a,x)=>a+Number(x.amount||0),0),footfall:f.get('footfall'),weather:f.get('weather'),blendSales:Object.fromEntries(CRAIC_BLENDS.map(x=>[x,Number(f.get('blend_'+x)||0)])),productSales,bookAgain:f.get('bookAgain'),notes:f.get('resultNotes')}
     };
     upsert(data.events,ne);
     $('#modal').close();
