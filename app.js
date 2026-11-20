@@ -83,7 +83,10 @@ function eventHourly(e){let h=hoursBetween(e.tradeStart,e.tradeFinish);return h?
 function today(){return new Date().toISOString().slice(0,10)}
 function daysUntil(ds){if(!ds)return null;return Math.ceil((new Date(ds+'T12:00:00')-new Date(today()+'T12:00:00'))/86400000)}
 function activeEvent(e){return !['Cancelled','Declined','Ignored'].includes(e.status)}
-function eventClashes(e){return data.events.filter(x=>x.id!==e.id&&x.date===e.date&&activeEvent(x)).length+data.personal.filter(x=>x.date===e.date).length}
+function traderName(e){return String(e.assignedTrader||'James').trim()||'James'}
+function coverReady(e){return traderName(e)==='James'||e.coverConfirmed===true}
+function eventClashes(e){if(!e.date||!activeEvent(e))return 0;return data.events.filter(x=>x.id!==e.id&&x.date===e.date&&activeEvent(x)&&(!coverReady(e)||!coverReady(x)||traderName(e).toLowerCase()===traderName(x).toLowerCase())).length+(traderName(e)==='James'?data.personal.filter(x=>x.date===e.date).length:0)}
+
 function actionQueue(){
   let out=[];
   data.events.filter(activeEvent).forEach(e=>{
@@ -140,7 +143,7 @@ function prepSummary(){
 
 $('#nav').onclick=e=>{if(e.target.dataset.page){page=e.target.dataset.page;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));render()}};
 $('#addBtn').onclick=()=>openMarket();
-function render(){const a=$('#app'); if(page==='home')a.innerHTML=home(); else if(page==='markets')a.innerHTML=marketsPage(); else if(page==='calendar')a.innerHTML=calendarPage(); else if(page==='applications')a.innerHTML=applicationsPage(); else if(page==='stock')a.innerHTML=stockPage(); else a.innerHTML=settingsPage(); bind();}
+function render(){const a=$('#app'); if(page==='home')a.innerHTML=home(); else if(page==='markets')a.innerHTML=marketsPage(); else if(page==='calendar')a.innerHTML=calendarPage(); else if(page==='applications')a.innerHTML=applicationsPage(); else if(page==='stock')a.innerHTML=stockPage(); else if(page==='insights')a.innerHTML=insightsPage(); else a.innerHTML=settingsPage(); bind();}
 function home(){
  const upcoming=[...data.events].filter(e=>e.date>=today()&&activeEvent(e)).sort((a,b)=>a.date.localeCompare(b.date));
  const unpaid=upcoming.filter(e=>['Offered','Booked','Paid'].includes(e.status)&&!e.paid), q=actionQueue(),prep=prepSummary();
@@ -152,6 +155,15 @@ function home(){
 }
 let marketSearch='',marketSort='next',marketView='active',marketExpanded=new Set();
 function marketNextDate(mid){return data.events.filter(e=>e.marketId===mid&&e.date>=today()&&activeEvent(e)).map(e=>e.date).sort()[0]||''}
+function insightsPage(){
+const es=data.events.filter(e=>e.results&&e.results.takings!==''&&e.results.takings!=null),sum=(xs,fn)=>xs.reduce((n,e)=>n+fn(e),0);
+const takings=sum(es,e=>Number(e.results.takings||0)),net=sum(es,eventNet);
+const markets=data.markets.map(m=>{const rows=es.filter(e=>e.marketId===m.id);return {name:m.name,count:rows.length,avg:rows.length?sum(rows,eventNet)/rows.length:0}}).filter(x=>x.count).sort((a,b)=>b.avg-a.avg);
+const months={};es.forEach(e=>{const k=(e.date||'Unknown').slice(0,7);if(!months[k])months[k]={count:0,net:0};months[k].count++;months[k].net+=eventNet(e)});
+const products={};es.forEach(e=>{Object.entries(blendSalesFromEvent(e)).forEach(([k,v])=>products[k]=(products[k]||0)+Number(v||0));(e.results.productSales||[]).forEach(p=>products[p.name]=(products[p.name]||0)+Number(p.quantity||0))});
+const row=(name,value,detail='')=>`<div class="card"><div class="row"><div><b>${esc(name)}</b><div class="muted">${esc(detail)}</div></div><b>${value}</b></div></div>`;
+return `<h2>Insights</h2><p class="muted">Analysis of saved results. Contribution excludes product costs and labour.</p><div class="grid"><div class="card"><div class="muted">Takings</div><div class="stat">${money(takings)}</div></div><div class="card"><div class="muted">Event contribution</div><div class="stat">${money(net)}</div></div><div class="card"><div class="muted">Results logged</div><div class="stat">${es.length}</div></div></div><h3>Markets by average contribution</h3><p class="muted">One result isn't enough to establish a trend.</p>${markets.map(x=>row(x.name,money(x.avg),x.count+' recorded events')).join('')||'<p>No results yet.</p>'}<h3>Monthly contribution</h3>${Object.keys(months).sort().reverse().map(k=>row(k,money(months[k].net),months[k].count+' events')).join('')||'<p>No results yet.</p>'}<h3>Products sold</h3>${Object.entries(products).filter(([k,v])=>v>0).sort((a,b)=>b[1]-a[1]).map(([k,v])=>row(k,v+' sold')).join('')||'<p>No product sales logged.</p>'}`;
+}
 function marketsPage(){
  const q=marketSearch.trim().toLowerCase();
  const rows=data.markets.filter(m=>{
@@ -185,7 +197,7 @@ function eventCard(e){const m=market(e.marketId);return `<div class="card event"
 function calendarPage(){
  let y=calendarCursor.getFullYear(),mo=calendarCursor.getMonth(),first=new Date(y,mo,1),last=new Date(y,mo+1,0),offset=(first.getDay()+6)%7,cells='';
  for(let i=0;i<offset;i++)cells+='<div></div>';
- for(let d=1;d<=last.getDate();d++){let ds=`${y}-${String(mo+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`,es=data.events.filter(e=>e.date===ds&&activeEvent(e)),ps=data.personal.filter(e=>e.date===ds),clash=es.length+ps.length>1;cells+=`<div class="day ${clash?'clash':''}"><b>${d}${clash?' ⚠':''}</b>${es.map(e=>`<div class="calitem" data-action="editEvent" data-id="${e.id}">${esc(eventDisplayName(e))}</div>`).join('')}${ps.map(e=>`<div class="calitem personal">${esc(e.title)}</div>`).join('')}</div>`}
+ for(let d=1;d<=last.getDate();d++){let ds=`${y}-${String(mo+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`,es=data.events.filter(e=>e.date===ds&&activeEvent(e)),ps=data.personal.filter(e=>e.date===ds),clash=es.some(e=>eventClashes(e)>0);cells+=`<div class="day ${clash?'clash':''}"><b>${d}${clash?' ⚠':''}</b>${es.map(e=>`<div class="calitem" data-action="editEvent" data-id="${e.id}">${esc(eventDisplayName(e))}</div>`).join('')}${ps.map(e=>`<div class="calitem personal">${esc(e.title)}</div>`).join('')}</div>`}
  return `<div class="row"><div><h2>Calendar</h2><div class="muted">${first.toLocaleString('en-GB',{month:'long',year:'numeric'})}</div></div><div><button data-action="prevMonth">←</button> <button data-action="thisMonth">Today</button> <button data-action="nextMonth">→</button> <button data-action="addPersonal">+ Personal</button></div></div><br><div class="calendar">${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(x=>`<b>${x}</b>`).join('')}${cells}</div><p class="muted">⚠ marks dates with more than one market/personal commitment.</p>`;
 }
 function applicationsPage(){
@@ -218,7 +230,7 @@ function openEvent(id,marketId,draft=null){
   }
 
   $('#formBody').innerHTML=`<h2>${id?'Event':'New event'} · ${esc(m?.name||'')}</h2><div class="stack">
-    ${field('Date','date',e.date,'date')}
+    ${field('Date','date',e.date,'date')}<h3>Trader cover</h3>${field('Assigned trader','assignedTrader',e.assignedTrader||'James')}<label class="check"><input type="checkbox" name="coverConfirmed" ${e.coverConfirmed?'checked':''}> Cover confirmed</label>${field('Stock / handover notes','coverNotes',e.coverNotes||'')}
     <div class="two"><div class="field"><label>Event type (optional)</label><select name="eventType">${['','Regular Market','Christmas Special','Summer Special','Night Market','Other'].map(x=>`<option value="${esc(x)}" ${(e.eventType||'')===x?'selected':''}>${esc(x||'Not specified')}</option>`).join('')}</select></div>${field('Special event name (optional)','eventTitle',e.eventTitle||'')}</div>
     <div class="two">
       <div class="field"><label>Status</label><select name="status">${statuses.map(x=>`<option ${e.status===x?'selected':''}>${x}</option>`).join('')}</select></div>
@@ -333,7 +345,7 @@ function openEvent(id,marketId,draft=null){
     productSales=productSales.filter(p=>p.name.trim() && p.quantity!=='' && Number(p.quantity)>=0).map(p=>({name:p.name.trim(),quantity:Number(p.quantity)}));
     let f=new FormData(ev.target), ne={
       ...e,id:e.id||uid('e'),marketId:e.marketId,date:f.get('date'),eventType:f.get('eventType'),eventTitle:String(f.get('eventTitle')||'').trim(),status:f.get('status'),
-      pitchFee:+f.get('pitchFee')||0,paid:f.get('paid')==='on',
+      pitchFee:+f.get('pitchFee')||0,paid:f.get('paid')==='on',assignedTrader:String(f.get('assignedTrader')||'James').trim()||'James',coverConfirmed:f.get('coverConfirmed')==='on',coverNotes:f.get('coverNotes')||'',
       applicationDeadline:f.get('applicationDeadline'),paymentDeadline:f.get('paymentDeadline'),
       setupFrom:f.get('setupFrom'),arrivalDeadline:f.get('arrivalDeadline'),vehicleOut:f.get('vehicleOut'),
       tradeStart:f.get('tradeStart'),tradeFinish:f.get('tradeFinish'),packStart:e.packStart||'',
@@ -354,7 +366,7 @@ function openEvent(id,marketId,draft=null){
     copy.paid=false;
     copy.applicationDeadline='';
     copy.paymentDeadline='';
-    copy.results={};
+    copy.results={};copy.assignedTrader='James';copy.coverConfirmed=false;copy.coverNotes='';
     copy.checklist=(copy.checklist||[]).map(c=>({...c,id:uid('c'),done:false}));
     $('#modal').close();
     openEvent(null,copy.marketId,copy);
